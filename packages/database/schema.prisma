@@ -1,0 +1,374 @@
+// This is your Prisma schema file
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER & AUTHENTICATION
+// ============================================================================
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(CLIENT)
+  firstName    String
+  lastName     String
+  phone        String?
+  avatar       String?
+  agentId      String?
+  agent        User?     @relation("AgentClients", fields: [agentId], references: [id], onDelete: SetNull)
+  clients      User[]    @relation("AgentClients")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  // Relations
+  leadsAsAgent            Lead[]        @relation("AgentLeads")
+  transactionsAsAgent     Transaction[] @relation("AgentTransactions")
+  transactionsAsClient    Transaction[] @relation("ClientTransactions")
+  showings                Showing[]
+  messages                Message[]
+  activitiesPerformed     Activity[]    @relation("ActivityPerformer")
+  notificationPreferences Json?
+  settings                Json?
+
+  @@index([email])
+  @@index([agentId])
+  @@map("users")
+}
+
+enum Role {
+  AGENT
+  CLIENT
+  ADMIN
+}
+
+// ============================================================================
+// LEADS
+// ============================================================================
+
+model Lead {
+  id              String     @id @default(uuid())
+  agentId         String
+  agent           User       @relation("AgentLeads", fields: [agentId], references: [id], onDelete: Cascade)
+
+  // Lead information
+  firstName       String
+  lastName        String
+  email           String
+  phone           String?
+  source          LeadSource
+  status          LeadStatus @default(NEW)
+  score           Int        @default(0)
+
+  // Engagement tracking
+  emailOpened     Boolean    @default(false)
+  linkClicked     Boolean    @default(false)
+  repliedToAgent  Boolean    @default(false)
+  lastContactDate DateTime?
+
+  // Intent signals
+  budgetMin       Int?
+  budgetMax       Int?
+  timeline        String?
+  propertyType    String?
+  preApproved     Boolean    @default(false)
+
+  // Metadata
+  notes           String?
+  tags            String[]
+  customFields    Json?
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  deletedAt       DateTime?
+
+  // Relations
+  activities       Activity[]
+  viewedProperties String[]
+  transaction      Transaction?
+
+  @@index([agentId])
+  @@index([email])
+  @@index([status])
+  @@index([score])
+  @@map("leads")
+}
+
+enum LeadSource {
+  WEBSITE
+  ZILLOW
+  REALTOR_COM
+  REFERRAL
+  SOCIAL_MEDIA
+  OPEN_HOUSE
+  MANUAL
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  ACTIVE
+  NURTURE
+  LOST
+  CONVERTED
+}
+
+// ============================================================================
+// TRANSACTIONS
+// ============================================================================
+
+model Transaction {
+  id                  String            @id @default(uuid())
+  agentId             String
+  agent               User              @relation("AgentTransactions", fields: [agentId], references: [id], onDelete: Cascade)
+  clientId            String
+  client              User              @relation("ClientTransactions", fields: [clientId], references: [id], onDelete: Cascade)
+  leadId              String?           @unique
+  lead                Lead?             @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  // Transaction details
+  type                TransactionType
+  status              TransactionStatus @default(PRE_LISTING)
+  propertyAddress     String
+  propertyCity        String
+  propertyState       String
+  propertyZip         String
+  propertyType        String
+  salePrice           Int?
+  listPrice           Int?
+
+  // Important dates
+  listingDate         DateTime?
+  offerDate           DateTime?
+  inspectionDeadline  DateTime?
+  appraisalDeadline   DateTime?
+  financingDeadline   DateTime?
+  closingDate         DateTime?
+  actualClosingDate   DateTime?
+
+  // Milestone tracking
+  offerAccepted       Boolean           @default(false)
+  inspectionComplete  Boolean           @default(false)
+  inspectionApproved  Boolean           @default(false)
+  appraisalComplete   Boolean           @default(false)
+  appraisalApproved   Boolean           @default(false)
+  loanApproved        Boolean           @default(false)
+  finalWalkthrough    Boolean           @default(false)
+
+  // Metadata
+  notes               String?
+  customFields        Json?
+
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  deletedAt           DateTime?
+
+  // Relations
+  documents           Document[]
+  activities          Activity[]
+  showings            Showing[]
+  milestones          Milestone[]
+
+  @@index([agentId])
+  @@index([clientId])
+  @@index([status])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  BUYER
+  SELLER
+  BOTH
+}
+
+enum TransactionStatus {
+  PRE_LISTING
+  LISTED
+  UNDER_CONTRACT
+  PENDING_CLOSING
+  CLOSED
+  CANCELLED
+}
+
+// ============================================================================
+// MILESTONES
+// ============================================================================
+
+model Milestone {
+  id            String      @id @default(uuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  name          String
+  description   String?
+  deadline      DateTime?
+  completed     Boolean     @default(false)
+  completedAt   DateTime?
+  order         Int
+
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([transactionId])
+  @@map("milestones")
+}
+
+// ============================================================================
+// DOCUMENTS
+// ============================================================================
+
+model Document {
+  id            String         @id @default(uuid())
+  transactionId String
+  transaction   Transaction    @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  name          String
+  type          DocumentType
+  url           String
+  uploadedBy    String
+  status        DocumentStatus @default(PENDING)
+
+  // Metadata
+  size          Int
+  mimeType      String
+  notes         String?
+
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+
+  @@index([transactionId])
+  @@index([status])
+  @@map("documents")
+}
+
+enum DocumentType {
+  OFFER
+  INSPECTION_REPORT
+  APPRAISAL
+  LOAN_APPROVAL
+  TITLE_REPORT
+  DISCLOSURE
+  CONTRACT
+  ADDENDUM
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  RECEIVED
+  REVIEWED
+  APPROVED
+  REJECTED
+}
+
+// ============================================================================
+// SHOWINGS
+// ============================================================================
+
+model Showing {
+  id              String        @id @default(uuid())
+  transactionId   String?
+  transaction     Transaction?  @relation(fields: [transactionId], references: [id], onDelete: SetNull)
+  clientId        String
+  client          User          @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  propertyAddress String
+  scheduledAt     DateTime
+  duration        Int           @default(30)
+  status          ShowingStatus @default(SCHEDULED)
+
+  // Feedback
+  clientFeedback  String?
+  clientRating    Int?
+  agentNotes      String?
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  deletedAt       DateTime?
+
+  @@index([clientId])
+  @@index([scheduledAt])
+  @@map("showings")
+}
+
+enum ShowingStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+// ============================================================================
+// MESSAGES (AI CHAT)
+// ============================================================================
+
+model Message {
+  id        String      @id @default(uuid())
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role      MessageRole
+  content   String
+  metadata  Json?
+
+  createdAt DateTime    @default(now())
+
+  @@index([userId])
+  @@map("messages")
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ============================================================================
+// ACTIVITIES (AUDIT TRAIL)
+// ============================================================================
+
+model Activity {
+  id            String       @id @default(uuid())
+  leadId        String?
+  lead          Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+
+  type          ActivityType
+  description   String
+  performedBy   String
+  performer     User         @relation("ActivityPerformer", fields: [performedBy], references: [id], onDelete: Cascade)
+  metadata      Json?
+
+  createdAt     DateTime     @default(now())
+
+  @@index([leadId])
+  @@index([transactionId])
+  @@index([performedBy])
+  @@map("activities")
+}
+
+enum ActivityType {
+  LEAD_CREATED
+  LEAD_CONTACTED
+  EMAIL_SENT
+  EMAIL_OPENED
+  LINK_CLICKED
+  SHOWING_SCHEDULED
+  NOTE_ADDED
+  STATUS_CHANGED
+  DOCUMENT_UPLOADED
+  MILESTONE_COMPLETED
+  TRANSACTION_CREATED
+  TRANSACTION_STATUS_CHANGED
+}
